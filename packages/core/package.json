@@ -27,6 +27,7 @@
     "build": "tsc && bun build ./src/index.ts --outdir ./dist --target node && bun run build:browser",
     "build:browser": "bun run scripts/build-search-page.ts",
     "dev": "bun --watch build",
+    "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "clean": "rm -rf dist"

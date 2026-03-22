@@ -21,6 +21,7 @@
     "build": "bun build ./src/index.ts --outdir ./dist --target node",
     "start": "bun run ./src/index.ts",
     "dev": "bun --watch ./src/index.ts",
+    "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "clean": "rm -rf dist"
