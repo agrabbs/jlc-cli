@@ -286,23 +286,47 @@ async function parseSymbolLibrary(
   try {
     const content = await readFile(filePath, 'utf-8');
 
+    // Validate file size (5MB max)
+    const MAX_FILE_SIZE = 5 * 1024 * 1024;
+    if (content.length > MAX_FILE_SIZE) {
+      throw new Error(`Library file too large: ${content.length} bytes (max ${MAX_FILE_SIZE})`);
+    }
+
     // Match symbol definitions: (symbol "JLC-MCP-Resistors:R_100k" ...)
     const symbolPattern = /\(symbol\s+"([^"]+)"\s+/g;
     const lcscPattern = /\(property\s+"LCSC"\s+"(C\d+)"/g;
     const footprintPattern = /\(property\s+"Footprint"\s+"([^"]+)"/g;
 
     // Split by symbol definitions to process each
+    // Limit split to prevent excessive memory usage
     const symbols = content.split(/(?=\(symbol\s+"[^"]+"\s+\()/);
+    
+    if (symbols.length > 10000) {
+      throw new Error(`Too many symbols in library: ${symbols.length} (max 10000)`);
+    }
 
     for (const symbolBlock of symbols) {
       // Skip header block
       if (!symbolBlock.includes('(symbol "')) continue;
+
+      // Limit symbol block size
+      if (symbolBlock.length > 100000) {
+        console.warn(`Skipping oversized symbol block: ${symbolBlock.length} chars`);
+        continue;
+      }
 
       // Extract symbol name
       const symbolMatch = symbolBlock.match(/\(symbol\s+"([^"]+)"/);
       if (!symbolMatch) continue;
 
       const fullSymbolRef = symbolMatch[1];
+
+      // Validate symbol reference length
+      if (fullSymbolRef.length > 500) {
+        console.warn(`Skipping symbol with too long reference: ${fullSymbolRef.length} chars`);
+        continue;
+      }
+
       // Skip if this is a subsymbol (contains _1_1, _0_1, etc.)
       if (fullSymbolRef.includes('_') && /_(0|1)_(0|1)$/.test(fullSymbolRef)) continue;
 
@@ -343,24 +367,68 @@ async function parseSymbolLibrary(
 
 // Remove a symbol from a .kicad_sym library file
 function removeSymbolFromLibrary(content: string, symbolName: string): string {
+  // Validate inputs
+  if (!content || typeof content !== 'string') {
+    throw new Error('Invalid library content');
+  }
+  if (!symbolName || typeof symbolName !== 'string') {
+    throw new Error('Invalid symbol name');
+  }
+
+  // Limit file size to prevent DoS (5MB max)
+  const MAX_FILE_SIZE = 5 * 1024 * 1024;
+  if (content.length > MAX_FILE_SIZE) {
+    throw new Error(`Library file too large (${content.length} bytes, max ${MAX_FILE_SIZE})`);
+  }
+
+  // Validate symbol name contains only safe characters
+  if (!/^[a-zA-Z0-9_\-:.]+$/.test(symbolName)) {
+    throw new Error(`Invalid symbol name: ${symbolName}`);
+  }
+
   // Find the main symbol block (not subsymbols like _0_1, _1_1)
   // Symbol format: (symbol "LibName:SymbolName" ...nested content...)
   const lines = content.split('\n');
+
+  // Limit number of lines to prevent excessive memory usage
+  const MAX_LINES = 500000;
+  if (lines.length > MAX_LINES) {
+    throw new Error(`Library file has too many lines (${lines.length}, max ${MAX_LINES})`);
+  }
+
   const result: string[] = [];
   let depth = 0;
   let inTargetSymbol = false;
   let symbolStartDepth = 0;
+  const MAX_DEPTH = 1000; // Prevent stack overflow from malformed files
 
   for (const line of lines) {
+    // Limit line length to prevent ReDoS
+    if (line.length > 10000) {
+      throw new Error(`Line too long (${line.length} chars, max 10000)`);
+    }
+
     // Count parentheses to track nesting depth
     const openCount = (line.match(/\(/g) || []).length;
     const closeCount = (line.match(/\)/g) || []).length;
+
+    // Validate depth doesn't exceed maximum
+    const newDepth = depth + openCount - closeCount;
+    if (newDepth > MAX_DEPTH || newDepth < 0) {
+      throw new Error(`Invalid nesting depth: ${newDepth} (max ${MAX_DEPTH})`);
+    }
 
     // Check if this line starts a symbol we want to remove
     // Match both "LibName:SymbolName" and just "SymbolName" formats
     const symbolMatch = line.match(/^\s*\(symbol\s+"([^"]+)"/);
     if (symbolMatch && !inTargetSymbol) {
       const fullRef = symbolMatch[1];
+
+      // Validate symbol reference
+      if (fullRef.length > 500) {
+        throw new Error(`Symbol reference too long: ${fullRef.length} chars`);
+      }
+
       const nameOnly = fullRef.includes(':') ? fullRef.split(':')[1] : fullRef;
       // Match main symbol or its subsymbols
       if (nameOnly === symbolName || nameOnly.startsWith(`${symbolName}_`)) {
