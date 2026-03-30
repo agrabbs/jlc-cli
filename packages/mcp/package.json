@@ -39,7 +39,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.0.7",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "@jlcpcb/core": "workspace:*",
     "zod": "3.24.1"
   },
