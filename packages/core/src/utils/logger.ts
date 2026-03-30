@@ -79,8 +79,22 @@ export class Logger {
    */
   security(event: string, details: Record<string, unknown>): void {
     if (this.shouldLog('info')) {
-      const formatted = this.formatMessage('SECURITY', event);
-      console.error(formatted, JSON.stringify(details, null, 2));
+      // Format security log with custom prefix
+      const parts: string[] = [];
+
+      if (this.timestamps) {
+        parts.push(`[${new Date().toISOString()}]`);
+      }
+
+      parts.push('[SECURITY]');
+
+      if (this.prefix) {
+        parts.push(`[${this.prefix}]`);
+      }
+
+      parts.push(event);
+
+      console.error(parts.join(' '), JSON.stringify(details, null, 2));
     }
   }
 
