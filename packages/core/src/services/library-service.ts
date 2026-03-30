@@ -10,7 +10,7 @@ import { join, basename } from 'path';
 
 import type { EasyEDAComponentData, EasyEDACommunityComponent } from '../types/index.js';
 import type { LibraryCategory } from '../converter/category-router.js';
-import { ensureDir, writeText, writeBinary, detectKicadVersion } from '../utils/index.js';
+import { ensureDir, writeText, writeBinary, detectKicadVersion, validateProjectPath } from '../utils/index.js';
 import { easyedaClient } from '../api/easyeda.js';
 import { easyedaCommunityClient } from '../api/easyeda-community.js';
 import { jlcClient } from '../api/jlc.js';
@@ -209,7 +209,9 @@ function getGlobalLibraryPaths(): LibraryPaths {
 }
 
 function getProjectLibraryPaths(projectPath: string): LibraryPaths {
-  const librariesDir = join(projectPath, 'libraries');
+  // Validate and canonicalize the project path to prevent path traversal
+  const validatedPath = validateProjectPath(projectPath);
+  const librariesDir = join(validatedPath, 'libraries');
 
   return {
     base: librariesDir,

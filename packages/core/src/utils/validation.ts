@@ -3,6 +3,8 @@
  */
 
 import { z } from 'zod';
+import { resolve, normalize, isAbsolute } from 'path';
+import { homedir } from 'os';
 
 // Component ID validation schemas
 export const LCSCPartNumberSchema = z.string().regex(/^C\d+$/, 'Invalid LCSC part number format (expected C followed by digits)');
@@ -135,6 +137,98 @@ export function validateComponent(component: unknown): boolean {
 
 export function validateDesignConstraints(constraints: unknown): boolean {
   return DesignConstraintsSchema.safeParse(constraints).success;
+}
+
+/**
+ * Validates and sanitizes a project path to prevent path traversal attacks
+ * @param projectPath - The user-supplied project path
+ * @returns Canonicalized absolute path
+ * @throws Error if path is invalid or potentially malicious
+ */
+export function validateProjectPath(projectPath: string): string {
+  // Check for empty path
+  if (!projectPath || projectPath.trim() === '') {
+    throw new Error('Project path cannot be empty');
+  }
+
+  // Check for null bytes
+  if (projectPath.includes('\0')) {
+    throw new Error('Path contains null bytes');
+  }
+
+  // Normalize and resolve to absolute path
+  const normalizedPath = normalize(projectPath);
+  const absolutePath = isAbsolute(normalizedPath) 
+    ? normalizedPath 
+    : resolve(process.cwd(), normalizedPath);
+
+  // Check for path traversal attempts
+  const resolvedPath = resolve(absolutePath);
+  
+  // Ensure the path doesn't traverse outside expected boundaries
+  const home = homedir();
+  const cwd = process.cwd();
+  
+  // Allow paths within:
+  // 1. User's home directory
+  // 2. Current working directory
+  // 3. /tmp or similar temp directories (for testing)
+  const isInHome = resolvedPath.startsWith(home);
+  const isInCwd = resolvedPath.startsWith(cwd);
+  const isInTemp = resolvedPath.startsWith('/tmp') || 
+                   resolvedPath.startsWith('/var/tmp') ||
+                   (process.platform === 'win32' && resolvedPath.includes('\\Temp\\'));
+
+  if (!isInHome && !isInCwd && !isInTemp) {
+    throw new Error(
+      `Project path must be within your home directory, current working directory, or temp directory. ` +
+      `Path: ${resolvedPath}`
+    );
+  }
+
+  // Check for suspicious patterns
+  const suspiciousPatterns = [
+    /\/etc\//i,
+    /\/bin\//i,
+    /\/usr\/bin/i,
+    /\/sbin/i,
+    /\/boot/i,
+    /\/sys\//i,
+    /\/proc\//i,
+    /\/dev\//i,
+    /\\windows\\/i,
+    /\\system32\\/i,
+    /\\program files/i,
+  ];
+
+  for (const pattern of suspiciousPatterns) {
+    if (pattern.test(resolvedPath)) {
+      throw new Error(`Project path contains suspicious system directory: ${resolvedPath}`);
+    }
+  }
+
+  return resolvedPath;
+}
+
+/**
+ * Validates that a path is safe for file operations
+ * @param filePath - The file path to validate
+ * @param basePath - The base directory the file should be within
+ * @returns true if path is safe
+ * @throws Error if path attempts to escape basePath
+ */
+export function validateFilePath(filePath: string, basePath: string): boolean {
+  const resolvedFile = resolve(normalize(filePath));
+  const resolvedBase = resolve(normalize(basePath));
+
+  if (!resolvedFile.startsWith(resolvedBase)) {
+    throw new Error(
+      `File path attempts to escape base directory. ` +
+      `File: ${resolvedFile}, Base: ${resolvedBase}`
+    );
+  }
+
+  return true;
 }
 
 export type ValidatedComponent = z.infer<typeof ComponentSchema>;
