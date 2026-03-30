@@ -1,6 +1,13 @@
 /**
  * HTTP server for the EasyEDA Component Browser
  * Runs alongside the MCP stdio server to serve the web UI and proxy API requests
+ * 
+ * Security features:
+ * - Token-based authentication
+ * - Rate limiting (100 req/min per IP)
+ * - CORS restricted to localhost
+ * - Bound to 127.0.0.1 only
+ * - Security event logging for failed auth and rate limiting
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'http'
@@ -97,6 +104,11 @@ export function startHttpServer(options: HttpServerOptions = {}): number {
     // Check rate limit
     if (!checkRateLimit(clientIp)) {
       logger.warn(`Rate limit exceeded for ${clientIp}`)
+      logger.security('rate_limit_exceeded', {
+        clientIp,
+        timestamp: new Date().toISOString(),
+        url: req.url,
+      })
       res.writeHead(429, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Too many requests. Please try again later.' }))
       return
@@ -105,6 +117,12 @@ export function startHttpServer(options: HttpServerOptions = {}): number {
     // Check authentication
     if (!validateAuth(req, options.disableAuth || false)) {
       logger.warn(`Unauthorized request from ${clientIp}`)
+      logger.security('auth_failed', {
+        clientIp,
+        timestamp: new Date().toISOString(),
+        url: req.url,
+        userAgent: req.headers['user-agent'],
+      })
       res.writeHead(401, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Unauthorized. Valid authentication token required.' }))
       return
@@ -139,7 +157,12 @@ export function startHttpServer(options: HttpServerOptions = {}): number {
     try {
       await handleRequest(req, res)
     } catch (error) {
-      logger.error('Request error:', error)
+      logger.errorWithContext('Request handling failed', error, {
+        clientIp,
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+      })
       res.writeHead(500, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Internal server error' }))
     }
