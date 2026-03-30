@@ -7,6 +7,7 @@ import type { ComponentSearchResult, EasyEDAComponentData, EasyEDACommunityCompo
 import { jlcClient } from '../api/jlc.js';
 import { easyedaClient } from '../api/easyeda.js';
 import { easyedaCommunityClient } from '../api/easyeda-community.js';
+import { isLcscId, isEasyEDAUuid } from '../utils/index.js';
 
 export interface SearchOptions {
   limit?: number;
@@ -36,10 +37,26 @@ export interface ComponentService {
 }
 
 /**
- * Check if an ID is an LCSC part number (starts with C followed by digits)
+ * Validates a component ID (LCSC or EasyEDA UUID)
  */
-function isLcscId(id: string): boolean {
-  return /^C\d+$/.test(id);
+function validateComponentId(id: string): void {
+  if (!id || id.trim() === '') {
+    throw new Error('Component ID cannot be empty');
+  }
+
+  if (id.includes('\0')) {
+    throw new Error('Component ID contains null bytes');
+  }
+
+  const isValidLcsc = isLcscId(id);
+  const isValidUuid = isEasyEDAUuid(id);
+
+  if (!isValidLcsc && !isValidUuid) {
+    throw new Error(
+      `Invalid component ID format: ${id}. ` +
+      `Expected LCSC part number (C followed by digits) or EasyEDA UUID (32-character hex string)`
+    );
+  }
 }
 
 export function createComponentService(): ComponentService {
@@ -66,6 +83,8 @@ export function createComponentService(): ComponentService {
     },
 
     async fetch(id: string): Promise<EasyEDAComponentData | null> {
+      validateComponentId(id);
+      
       if (isLcscId(id)) {
         return easyedaClient.getComponentData(id);
       }
@@ -74,10 +93,13 @@ export function createComponentService(): ComponentService {
     },
 
     async fetchCommunity(uuid: string): Promise<EasyEDACommunityComponent | null> {
+      validateComponentId(uuid);
       return easyedaCommunityClient.getComponent(uuid);
     },
 
     async getDetails(lcscId: string): Promise<ComponentDetails> {
+      validateComponentId(lcscId);
+      
       const component = await easyedaClient.getComponentData(lcscId);
       if (!component) {
         throw new Error(`Component ${lcscId} not found`);

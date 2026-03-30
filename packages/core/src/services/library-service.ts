@@ -10,7 +10,15 @@ import { join, basename } from 'path';
 
 import type { EasyEDAComponentData, EasyEDACommunityComponent } from '../types/index.js';
 import type { LibraryCategory } from '../converter/category-router.js';
-import { ensureDir, writeText, writeBinary, detectKicadVersion, validateProjectPath } from '../utils/index.js';
+import { 
+  ensureDir, 
+  writeText, 
+  writeBinary, 
+  detectKicadVersion, 
+  validateProjectPath,
+  isLcscId as validateLcscId,
+  isEasyEDAUuid as validateEasyEDAUuid,
+} from '../utils/index.js';
 import { easyedaClient } from '../api/easyeda.js';
 import { easyedaCommunityClient } from '../api/easyeda-community.js';
 import { jlcClient } from '../api/jlc.js';
@@ -224,7 +232,33 @@ function getProjectLibraryPaths(projectPath: string): LibraryPaths {
 }
 
 function isLcscId(id: string): boolean {
-  return /^C\d+$/.test(id);
+  return validateLcscId(id);
+}
+
+function isEasyEDAUuid(id: string): boolean {
+  return validateEasyEDAUuid(id);
+}
+
+function validateComponentId(id: string): void {
+  if (!id || id.trim() === '') {
+    throw new Error('Component ID cannot be empty');
+  }
+
+  // Check for null bytes
+  if (id.includes('\0')) {
+    throw new Error('Component ID contains null bytes');
+  }
+
+  // Must be either valid LCSC ID or EasyEDA UUID
+  const isValidLcsc = isLcscId(id);
+  const isValidUuid = isEasyEDAUuid(id);
+
+  if (!isValidLcsc && !isValidUuid) {
+    throw new Error(
+      `Invalid component ID format: ${id}. ` +
+      `Expected LCSC part number (C followed by digits) or EasyEDA UUID (32-character hex string)`
+    );
+  }
 }
 
 function getKicadConfigDir(version: string): string {
@@ -402,6 +436,9 @@ function adaptCommunityComponent(component: EasyEDACommunityComponent): EasyEDAC
 export function createLibraryService(): LibraryService {
   return {
     async install(id: string, options: InstallOptions = {}): Promise<InstallResult> {
+      // Validate component ID before proceeding
+      validateComponentId(id);
+
       const isCommunityComponent = !isLcscId(id);
 
       // Determine storage location (global if no projectPath provided)

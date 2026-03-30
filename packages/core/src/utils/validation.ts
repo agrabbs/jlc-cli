@@ -231,5 +231,43 @@ export function validateFilePath(filePath: string, basePath: string): boolean {
   return true;
 }
 
+/**
+ * Sanitizes a component name for use in filenames and identifiers
+ * Removes or replaces characters that could be problematic
+ * @param name - The component name to sanitize
+ * @returns Sanitized name safe for use in filenames
+ */
+export function sanitizeComponentName(name: string): string {
+  if (!name || name.trim() === '') {
+    throw new Error('Component name cannot be empty');
+  }
+
+  // Remove null bytes
+  let sanitized = name.replace(/\0/g, '');
+
+  // Replace path separators and potentially dangerous characters
+  sanitized = sanitized
+    .replace(/[\/\\]/g, '_')        // Path separators
+    .replace(/[<>:"|?*]/g, '_')     // Windows forbidden characters
+    .replace(/\.\./g, '__')          // Path traversal attempts
+    .replace(/^\.+/, '')             // Leading dots (hidden files)
+    .replace(/\s+/g, '_')            // Whitespace
+    .replace(/[^a-zA-Z0-9_-]/g, '_') // Non-alphanumeric except underscore and hyphen
+    .replace(/_+/g, '_')             // Multiple underscores
+    .replace(/^_+|_+$/g, '');        // Leading/trailing underscores
+
+  // Ensure it's not empty after sanitization
+  if (sanitized === '') {
+    sanitized = 'component';
+  }
+
+  // Limit length to prevent filesystem issues
+  if (sanitized.length > 200) {
+    sanitized = sanitized.substring(0, 200);
+  }
+
+  return sanitized;
+}
+
 export type ValidatedComponent = z.infer<typeof ComponentSchema>;
 export type ValidatedDesignConstraints = z.infer<typeof DesignConstraintsSchema>;
