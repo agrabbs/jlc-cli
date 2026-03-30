@@ -11,6 +11,7 @@ import {
   parseSymbolShapes,
   parseFootprintShapes,
 } from '../parsers/index.js';
+import { rateLimiters, requestQueue } from '../utils/rate-limiter.js';
 
 const logger = createLogger('easyeda-api');
 
@@ -34,9 +35,15 @@ export class EasyEDAClient {
     logger.debug(`Fetching component data for: ${lcscPartNumber}`);
 
     try {
-      const responseText = await fetchWithCurlFallback(url, { 
-        maxSize: MAX_API_RESPONSE_SIZE 
-      }) as string;
+      // Apply rate limiting
+      await rateLimiters.easyeda.acquire();
+
+      // Queue request to limit overall concurrency
+      const responseText = await requestQueue.add(() => 
+        fetchWithCurlFallback(url, { 
+          maxSize: MAX_API_RESPONSE_SIZE 
+        })
+      ) as string;
       const data = JSON.parse(responseText);
 
       if (!data.result) {
@@ -61,10 +68,16 @@ export class EasyEDAClient {
     logger.debug(`Downloading 3D model (${format}) from: ${url}`);
 
     try {
-      const result = await fetchWithCurlFallback(url, { 
-        binary: true,
-        maxSize: MAX_3D_MODEL_SIZE 
-      });
+      // Apply rate limiting for downloads
+      await rateLimiters.downloads.acquire();
+
+      // Queue request to limit overall concurrency
+      const result = await requestQueue.add(() =>
+        fetchWithCurlFallback(url, { 
+          binary: true,
+          maxSize: MAX_3D_MODEL_SIZE 
+        })
+      );
       
       logger.debug(`3D model downloaded successfully, size: ${(result as Buffer).length} bytes`);
       return result as Buffer;

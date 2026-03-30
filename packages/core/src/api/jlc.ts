@@ -5,6 +5,7 @@
 
 import type { LCSCSearchOptions, ComponentSearchResult } from '../types/index.js';
 import { createLogger } from '../utils/index.js';
+import { rateLimiters, requestQueue } from '../utils/rate-limiter.js';
 
 const logger = createLogger('jlc-api');
 
@@ -106,14 +107,20 @@ export class JLCClient {
     const body = JSON.stringify(requestBody);
 
     try {
-      const response = await fetch(JLCPCB_SEARCH_API, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body,
-      });
+      // Apply rate limiting for search requests
+      await rateLimiters.jlcSearch.acquire();
+
+      // Queue request to limit overall concurrency
+      const response = await requestQueue.add(() =>
+        fetch(JLCPCB_SEARCH_API, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body,
+        })
+      );
 
       if (!response.ok) {
         throw new Error(`JLCPCB API returned ${response.status}`);
@@ -186,6 +193,9 @@ export class JLCClient {
     stock: number;
     priceBreaks: Array<{ quantity: number; price: number }>;
   }> {
+    // Apply rate limiting
+    await rateLimiters.jlcComponent.acquire();
+
     // Re-search to get current stock info
     const results = await this.search(lcscPartNumber, { limit: 1 });
 
@@ -205,6 +215,9 @@ export class JLCClient {
    * Used to enrich EasyEDA data with JLC-specific attributes
    */
   async getComponentDetails(lcscPartNumber: string): Promise<ComponentSearchResult | null> {
+    // Apply rate limiting
+    await rateLimiters.jlcComponent.acquire();
+
     const results = await this.search(lcscPartNumber, { limit: 1 });
     if (results.length === 0) {
       return null;
