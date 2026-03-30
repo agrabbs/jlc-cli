@@ -41,7 +41,8 @@ export class EasyEDAClient {
       // Queue request to limit overall concurrency
       const responseText = await requestQueue.add(() => 
         fetchWithCurlFallback(url, { 
-          maxSize: MAX_API_RESPONSE_SIZE 
+          maxSize: MAX_API_RESPONSE_SIZE,
+          expectedFileType: 'json'
         })
       ) as string;
       const data = JSON.parse(responseText);
@@ -75,7 +76,8 @@ export class EasyEDAClient {
       const result = await requestQueue.add(() =>
         fetchWithCurlFallback(url, { 
           binary: true,
-          maxSize: MAX_3D_MODEL_SIZE 
+          maxSize: MAX_3D_MODEL_SIZE,
+          expectedFileType: format // Validate as 'step' or 'obj'
         })
       );
       
