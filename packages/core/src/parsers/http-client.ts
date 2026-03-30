@@ -3,7 +3,7 @@
  * Used by both LCSC and Community API clients
  */
 
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import { createLogger } from '../utils/index.js';
 
 const logger = createLogger('http-client');
@@ -58,38 +58,47 @@ export async function fetchWithCurlFallback(
 
   // Fallback to curl
   try {
-    const curlArgs = ['curl', '-s'];
+    const curlArgs = ['-s'];
 
     if (method === 'POST') {
       curlArgs.push('-X', 'POST');
     }
 
-    curlArgs.push('-H', '"Accept: application/json"');
+    curlArgs.push('-H', 'Accept: application/json');
     curlArgs.push(
       '-H',
-      '"User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"'
+      'User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'
     );
 
     if (options.contentType) {
-      curlArgs.push('-H', `"Content-Type: ${options.contentType}"`);
+      curlArgs.push('-H', `Content-Type: ${options.contentType}`);
     }
 
     if (options.body) {
-      curlArgs.push('-d', `'${options.body}'`);
+      curlArgs.push('-d', options.body);
     }
 
-    curlArgs.push(`"${url}"`);
+    curlArgs.push(url);
+
+    // Use spawnSync with argument array to prevent command injection
+    const result = spawnSync('curl', curlArgs, {
+      maxBuffer: 50 * 1024 * 1024,
+      encoding: options.binary ? 'buffer' : 'utf-8',
+    });
+
+    if (result.error) {
+      throw result.error;
+    }
+
+    if (result.status !== 0) {
+      throw new Error(`curl exited with code ${result.status}: ${result.stderr}`);
+    }
 
     if (options.binary) {
-      const result = execSync(curlArgs.join(' '), { maxBuffer: 50 * 1024 * 1024 });
-      return result;
+      return result.stdout as Buffer;
     }
 
-    const result = execSync(curlArgs.join(' '), {
-      encoding: 'utf-8',
-      maxBuffer: 50 * 1024 * 1024,
-    });
-    return result;
+    return result.stdout as string;
   } catch (error) {
     throw new Error(`Both fetch and curl failed for URL: ${url}`);
   }
