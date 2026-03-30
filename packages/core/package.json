@@ -44,9 +44,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "zod": "^3.22.0"
+    "zod": "3.22.0"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0"
+    "@types/node": "20.0.0"
   }
 }
