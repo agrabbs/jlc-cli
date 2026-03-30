@@ -8,12 +8,64 @@ import { createLogger } from '../utils/index.js';
 
 const logger = createLogger('http-client');
 
+// Allowed Content-Types for different file formats
+const ALLOWED_CONTENT_TYPES: Record<string, string[]> = {
+  'step': [
+    'application/step',
+    'model/step',
+    'model/step+xml',
+    'application/step+xml',
+    'application/octet-stream',
+    'application/x-step',
+  ],
+  'obj': [
+    'model/obj',
+    'text/plain',
+    'application/octet-stream',
+  ],
+  'json': [
+    'application/json',
+    'text/json',
+  ],
+  'html': [
+    'text/html',
+    'application/xhtml+xml',
+  ],
+};
+
+/**
+ * Validate Content-Type header for expected file type
+ * @param contentType The Content-Type header value
+ * @param expectedType The expected file type (step, obj, json, etc.)
+ * @returns true if valid, false otherwise
+ */
+function isValidContentType(contentType: string | null, expectedType?: string): boolean {
+  if (!contentType) {
+    // Missing Content-Type - allow for now but log warning
+    return true;
+  }
+
+  const normalizedType = contentType.toLowerCase().split(';')[0].trim();
+
+  // If no expected type specified, just check it's not obviously dangerous
+  if (!expectedType) {
+    // Reject known dangerous types
+    const dangerousTypes = ['text/html', 'application/javascript', 'text/javascript', 'application/x-sh'];
+    return !dangerousTypes.includes(normalizedType);
+  }
+
+  // Check against allowed types for the expected format
+  const allowedTypes = ALLOWED_CONTENT_TYPES[expectedType] || [];
+  return allowedTypes.some(type => normalizedType.includes(type));
+}
+
 export interface FetchOptions {
   method?: 'GET' | 'POST';
   body?: string;
   contentType?: string;
   binary?: boolean;
   maxSize?: number; // Maximum size in bytes
+  expectedFileType?: string; // Expected file type for Content-Type validation (step, obj, json)
 }
 
 /**
@@ -48,6 +100,23 @@ export async function fetchWithCurlFallback(
     const response = await fetch(url, fetchOptions);
 
     if (response.ok) {
+      // Validate Content-Type if expectedFileType is specified
+      const responseContentType = response.headers.get('content-type');
+      if (options.expectedFileType) {
+        if (!isValidContentType(responseContentType, options.expectedFileType)) {
+          throw new Error(
+            `Invalid Content-Type: ${responseContentType}. Expected ${options.expectedFileType} format.`
+          );
+        }
+      } else {
+        // At minimum, check it's not a dangerous type
+        if (!isValidContentType(responseContentType)) {
+          throw new Error(
+            `Potentially dangerous Content-Type: ${responseContentType}`
+          );
+        }
+      }
+
       // Check Content-Length header if available
       const contentLength = response.headers.get('content-length');
       if (options.maxSize && contentLength) {
