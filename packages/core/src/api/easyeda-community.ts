@@ -27,6 +27,11 @@ const API_VERSION = '6.5.51'
 const ENDPOINT_3D_MODEL_STEP = 'https://modules.easyeda.com/qAxj6KHrDKw4blvCG8QJPs7Y/{uuid}'
 const ENDPOINT_3D_MODEL_OBJ = 'https://modules.easyeda.com/3dmodel/{uuid}'
 
+// Maximum file sizes (in bytes)
+const MAX_API_RESPONSE_SIZE = 5 * 1024 * 1024;   // 5MB for component data
+const MAX_SEARCH_RESPONSE_SIZE = 2 * 1024 * 1024; // 2MB for search results
+const MAX_3D_MODEL_SIZE = 50 * 1024 * 1024;       // 50MB for 3D models
+
 export class EasyEDACommunityClient {
   /**
    * Search the EasyEDA community library
@@ -49,6 +54,7 @@ export class EasyEDACommunityClient {
         method: 'POST',
         body: formData.toString(),
         contentType: 'application/x-www-form-urlencoded',
+        maxSize: MAX_SEARCH_RESPONSE_SIZE,
       })) as string
 
       const data = JSON.parse(responseText)
@@ -74,7 +80,9 @@ export class EasyEDACommunityClient {
     logger.debug(`Fetching component: ${uuid}`)
 
     try {
-      const responseText = (await fetchWithCurlFallback(url)) as string
+      const responseText = (await fetchWithCurlFallback(url, {
+        maxSize: MAX_API_RESPONSE_SIZE,
+      })) as string
       const data = JSON.parse(responseText)
 
       if (!data.success || !data.result) {
@@ -100,10 +108,21 @@ export class EasyEDACommunityClient {
         ? ENDPOINT_3D_MODEL_STEP.replace('{uuid}', uuid)
         : ENDPOINT_3D_MODEL_OBJ.replace('{uuid}', uuid)
 
+    logger.debug(`Downloading 3D model (${format}) from: ${url}`)
+
     try {
-      const result = await fetchWithCurlFallback(url, { binary: true })
+      const result = await fetchWithCurlFallback(url, { 
+        binary: true,
+        maxSize: MAX_3D_MODEL_SIZE 
+      })
+      
+      logger.debug(`3D model downloaded successfully, size: ${(result as Buffer).length} bytes`)
       return result as Buffer
-    } catch {
+    } catch (error) {
+      logger.warn(`Failed to download 3D model: ${error}`)
+      return null
+    }
+  }
       return null
     }
   }

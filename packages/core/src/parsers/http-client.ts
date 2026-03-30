@@ -13,6 +13,7 @@ export interface FetchOptions {
   body?: string;
   contentType?: string;
   binary?: boolean;
+  maxSize?: number; // Maximum size in bytes
 }
 
 /**
@@ -47,10 +48,40 @@ export async function fetchWithCurlFallback(
     const response = await fetch(url, fetchOptions);
 
     if (response.ok) {
-      if (options.binary) {
-        return Buffer.from(await response.arrayBuffer());
+      // Check Content-Length header if available
+      const contentLength = response.headers.get('content-length');
+      if (options.maxSize && contentLength) {
+        const size = parseInt(contentLength, 10);
+        if (size > options.maxSize) {
+          throw new Error(
+            `Response size ${size} bytes exceeds maximum allowed size of ${options.maxSize} bytes`
+          );
+        }
       }
-      return await response.text();
+
+      if (options.binary) {
+        const buffer = Buffer.from(await response.arrayBuffer());
+        
+        // Verify size after download if Content-Length wasn't available
+        if (options.maxSize && buffer.length > options.maxSize) {
+          throw new Error(
+            `Downloaded file size ${buffer.length} bytes exceeds maximum allowed size of ${options.maxSize} bytes`
+          );
+        }
+        
+        return buffer;
+      }
+      
+      const text = await response.text();
+      
+      // Check text size
+      if (options.maxSize && text.length > options.maxSize) {
+        throw new Error(
+          `Response size ${text.length} bytes exceeds maximum allowed size of ${options.maxSize} bytes`
+        );
+      }
+      
+      return text;
     }
   } catch (error) {
     logger.debug(`Native fetch failed, falling back to curl: ${error}`);
@@ -81,12 +112,19 @@ export async function fetchWithCurlFallback(
     curlArgs.push(url);
 
     // Use spawnSync with argument array to prevent command injection
+    const maxBuffer = options.maxSize || 50 * 1024 * 1024;
     const result = spawnSync('curl', curlArgs, {
-      maxBuffer: 50 * 1024 * 1024,
+      maxBuffer,
       encoding: options.binary ? 'buffer' : 'utf-8',
     });
 
     if (result.error) {
+      // Check if error is due to maxBuffer exceeded
+      if (result.error.message?.includes('maxBuffer') || result.error.message?.includes('stdout maxBuffer')) {
+        throw new Error(
+          `Download exceeded maximum allowed size of ${maxBuffer} bytes`
+        );
+      }
       throw result.error;
     }
 
@@ -95,10 +133,22 @@ export async function fetchWithCurlFallback(
     }
 
     if (options.binary) {
-      return result.stdout as Buffer;
+      const buffer = result.stdout as Buffer;
+      if (options.maxSize && buffer.length > options.maxSize) {
+        throw new Error(
+          `Downloaded file size ${buffer.length} bytes exceeds maximum allowed size of ${options.maxSize} bytes`
+        );
+      }
+      return buffer;
     }
 
-    return result.stdout as string;
+    const text = result.stdout as string;
+    if (options.maxSize && text.length > options.maxSize) {
+      throw new Error(
+        `Response size ${text.length} bytes exceeds maximum allowed size of ${options.maxSize} bytes`
+      );
+    }
+    return text;
   } catch (error) {
     throw new Error(`Both fetch and curl failed for URL: ${url}`);
   }

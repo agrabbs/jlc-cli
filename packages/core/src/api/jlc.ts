@@ -20,6 +20,9 @@ function stripTemperaturePrefix(description: string): string {
 const JLCPCB_SEARCH_API =
   'https://jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/selectSmtComponentList/v2';
 
+// Maximum response size for search (1MB should be enough for search results)
+const MAX_SEARCH_RESPONSE_SIZE = 1 * 1024 * 1024;
+
 /**
  * JLCPCB component structure from API response
  */
@@ -116,7 +119,27 @@ export class JLCClient {
         throw new Error(`JLCPCB API returned ${response.status}`);
       }
 
-      const data: JLCPCBSearchResponse = await response.json();
+      // Check Content-Length if available
+      const contentLength = response.headers.get('content-length');
+      if (contentLength) {
+        const size = parseInt(contentLength, 10);
+        if (size > MAX_SEARCH_RESPONSE_SIZE) {
+          throw new Error(
+            `Search response size ${size} bytes exceeds maximum allowed size of ${MAX_SEARCH_RESPONSE_SIZE} bytes`
+          );
+        }
+      }
+
+      const text = await response.text();
+      
+      // Verify size after download
+      if (text.length > MAX_SEARCH_RESPONSE_SIZE) {
+        throw new Error(
+          `Search response size ${text.length} bytes exceeds maximum allowed size of ${MAX_SEARCH_RESPONSE_SIZE} bytes`
+        );
+      }
+
+      const data: JLCPCBSearchResponse = JSON.parse(text);
 
       if (data.code !== 200) {
         throw new Error(`JLCPCB API error: ${data.message || 'Unknown error'}`);
